@@ -19,8 +19,12 @@ type Event struct {
 	AggregateType string // e.g. "sighting"
 	AggregateID   string // the id of the aggregate the event is about
 	Type          string // the event type, e.g. "SightingRecorded"
-	Payload       []byte // the event body as JSON
-	OccurredAt    time.Time
+	// Payload is the event body. It is stored in a jsonb column, so it must be valid, non-empty JSON,
+	// and it is normalized on the round-trip (insignificant whitespace dropped, object keys reordered):
+	// the delivered bytes are JSON-equal to what was appended, not byte-identical. Use a text/bytea
+	// column instead if you need byte-exact payloads.
+	Payload    []byte
+	OccurredAt time.Time
 }
 
 // Handler delivers an Event to its destination — a log, Kafka, SNS, a webhook, anything. It must be

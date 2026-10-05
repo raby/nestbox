@@ -1,4 +1,7 @@
-package nestbox
+// Package example holds the Postgres-backed integration tests for nestbox. They live in a separate
+// module (with the pgx driver) so the library module itself stays dependency-free. They exercise the
+// public API against a real database and skip unless DATABASE_URL is set.
+package example
 
 import (
 	"context"
@@ -10,6 +13,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/raby/nestbox"
 )
 
 // openTestDB connects to the Postgres named by DATABASE_URL, applies the schema and truncates the
@@ -25,7 +30,7 @@ func openTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	if _, err := db.ExecContext(context.Background(), Schema); err != nil {
+	if _, err := db.ExecContext(context.Background(), nestbox.Schema); err != nil {
 		t.Fatalf("apply schema: %v", err)
 	}
 	if _, err := db.Exec("TRUNCATE outbox"); err != nil {
@@ -46,7 +51,7 @@ func appendN(t *testing.T, db *sql.DB, n int) {
 		t.Fatal(err)
 	}
 	for i := 0; i < n; i++ {
-		e := Event{
+		e := nestbox.Event{
 			ID:            fmt.Sprintf("%08d-0000-4000-8000-000000000000", i),
 			AggregateType: "sighting",
 			AggregateID:   "agg",
@@ -54,7 +59,7 @@ func appendN(t *testing.T, db *sql.DB, n int) {
 			Payload:       []byte(fmt.Sprintf(`{"n":%d}`, i)),
 			OccurredAt:    time.Now().UTC(),
 		}
-		if err := Append(ctx, tx, e); err != nil {
+		if err := nestbox.Append(ctx, tx, e); err != nil {
 			_ = tx.Rollback()
 			t.Fatalf("append: %v", err)
 		}
@@ -77,9 +82,9 @@ func TestPostgresDrainDeliversAndMarksPublished(t *testing.T) {
 	db := openTestDB(t)
 	appendN(t, db, 3)
 
-	store := NewPostgresStore(db)
-	var got []Event
-	h := HandlerFunc(func(_ context.Context, e Event) error { got = append(got, e); return nil })
+	store := nestbox.NewPostgresStore(db)
+	var got []nestbox.Event
+	h := nestbox.HandlerFunc(func(_ context.Context, e nestbox.Event) error { got = append(got, e); return nil })
 
 	n, err := store.Drain(context.Background(), 10, h)
 	if err != nil {
@@ -106,8 +111,8 @@ func TestPostgresDrainRollsBackWholeBatchOnHandlerError(t *testing.T) {
 	db := openTestDB(t)
 	appendN(t, db, 2)
 
-	store := NewPostgresStore(db)
-	h := HandlerFunc(func(_ context.Context, _ Event) error { return errors.New("sink is down") })
+	store := nestbox.NewPostgresStore(db)
+	h := nestbox.HandlerFunc(func(_ context.Context, _ nestbox.Event) error { return errors.New("sink is down") })
 
 	n, err := store.Drain(context.Background(), 10, h)
 	if err == nil {

@@ -21,11 +21,13 @@ type Relay struct {
 // Option configures a Relay.
 type Option func(*Relay)
 
-// WithBatchSize sets how many events a single drain claims (default 100).
+// WithBatchSize sets how many events a single drain claims (default 100). A value below 1 is treated
+// as 1.
 func WithBatchSize(n int) Option { return func(r *Relay) { r.batch = n } }
 
-// WithInterval sets how often the relay polls when idle (default 1s). When a drain returns a full
-// batch the relay keeps going immediately, so a backlog is cleared without waiting for ticks.
+// WithInterval sets how often the relay polls when idle (default 1s). A value of 0 or less keeps the
+// default. When a drain returns a full batch the relay keeps going immediately, so a backlog is
+// cleared without waiting for ticks.
 func WithInterval(d time.Duration) Option { return func(r *Relay) { r.interval = d } }
 
 // WithLogger sets the logger (default slog.Default()).
@@ -36,6 +38,15 @@ func NewRelay(store Store, handler Handler, opts ...Option) *Relay {
 	r := &Relay{store: store, handler: handler, batch: 100, interval: time.Second, logger: slog.Default()}
 	for _, o := range opts {
 		o(r)
+	}
+	// Guard against a misconfigured batch size: a batch of 0 would make every drain return 0 rows, and
+	// the catch-up loop below (which stops only when a drain returns fewer than batch) would spin
+	// forever delivering nothing.
+	if r.batch < 1 {
+		r.batch = 1
+	}
+	if r.interval <= 0 {
+		r.interval = time.Second
 	}
 	return r
 }

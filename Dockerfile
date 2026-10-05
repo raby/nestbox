@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1
 
-# Build the worker and producer as static binaries.
+# Build the worker and producer. They live in the example module (which brings the Postgres driver);
+# the root nestbox library module it depends on is dependency-free and resolved by a local replace.
 FROM golang:1.23 AS build
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -o /out/worker ./cmd/worker \
- && CGO_ENABLED=0 go build -trimpath -o /out/producer ./cmd/producer
+WORKDIR /src/example
+RUN go mod download \
+ && CGO_ENABLED=0 go build -trimpath -o /out/worker ./worker \
+ && CGO_ENABLED=0 go build -trimpath -o /out/producer ./producer
 
 # Minimal runtime: a distroless static image, non-root. ENTRYPOINT is the worker; the producer binary
 # is also present (docker compose run producer).

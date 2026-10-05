@@ -79,3 +79,35 @@ func TestRelayDeliversAllQueuedEventsInOrderThenStopsOnCancel(t *testing.T) {
 		}
 	}
 }
+
+// TestRelayClampsNonPositiveBatchSize guards the catch-up loop: a batch size of 0 (or less) is clamped
+// to 1, so the relay still makes progress instead of spinning forever on drains that return 0 rows and
+// never satisfy the "fewer than batch" stop condition.
+func TestRelayClampsNonPositiveBatchSize(t *testing.T) {
+	store := &fakeStore{queue: []Event{{ID: "1"}, {ID: "2"}}}
+
+	var mu sync.Mutex
+	var count int
+	done := make(chan struct{})
+	handler := HandlerFunc(func(_ context.Context, _ Event) error {
+		mu.Lock()
+		count++
+		if count == 2 {
+			close(done)
+		}
+		mu.Unlock()
+		return nil
+	})
+
+	relay := NewRelay(store, handler, WithInterval(5*time.Millisecond), WithBatchSize(0))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = relay.Run(ctx) }()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("relay made no progress with a zero batch size; expected it to be clamped to 1")
+	}
+}
