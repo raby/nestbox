@@ -1,0 +1,5 @@
+/out/
+*.test
+*.out
+coverage.*
+.DS_Store

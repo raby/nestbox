@@ -1,0 +1,44 @@
+# A runnable demo of the whole pattern:
+#
+#   docker compose up --build -d        # Postgres + the relay worker
+#   docker compose run --rm producer    # enqueue 5 events in one transaction
+#   docker compose logs worker          # watch them get "published"
+#   docker compose down -v              # tear down
+#
+# Scale the relay to see SKIP LOCKED share the work without double-delivery:
+#   docker compose up --build -d --scale worker=3
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nestbox
+      POSTGRES_PASSWORD: nestbox
+      POSTGRES_DB: nestbox
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nestbox -d nestbox"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build: .
+    environment:
+      DATABASE_URL: postgres://nestbox:nestbox@postgres:5432/nestbox?sslmode=disable
+      POLL_MS: "1000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # One-shot producer; not started by `up`. Run it with `docker compose run --rm producer`.
+  producer:
+    build: .
+    entrypoint: ["/producer"]
+    environment:
+      DATABASE_URL: postgres://nestbox:nestbox@postgres:5432/nestbox?sslmode=disable
+      COUNT: "5"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["tools"]
